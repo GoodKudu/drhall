@@ -1,0 +1,146 @@
+---
+title: "R_assignment_testing"
+author: "David Hall"
+date: "2023-03-12"
+output: html_document
+---
+
+# R Assignment
+
+load necessary R packages:
+```{r packages}
+library(tidyverse)
+library(tidyr)
+```
+
+load data files `fang_et_al_genotypes.txt` and `snp_position.txt`:
+```{r data}
+fang_et_al_genotypes <- 
+  read_tsv("https://raw.githubusercontent.com/EEOB-BioData/BCB546_Spring2023/main/assignments/UNIX_Assignment/fang_et_al_genotypes.txt")
+snp_position <- 
+  read_tsv("https://raw.githubusercontent.com/EEOB-BioData/BCB546_Spring2023/main/assignments/UNIX_Assignment/snp_position.txt")
+```
+
+## Data inspection
+### Properties of `fang_et_al_genotypes`
+### Properties of `snp_position`
+## Data processing
+
+### Maize data
+
+Extract maize data, transpose, and convert SNP_ID from row names to a column:
+```{r sort_transpose}
+maize_genotypes <- filter(fang_et_al_genotypes, Group=='ZMMIL'|Group =='ZMMLR'|Group =='ZMMMR') %>% t() %>% as.data.frame() %>% rownames_to_column()
+names(maize_genotypes)[1] <- "SNP_ID"
+```
+
+Join SNP_ID, chromosome, and position fields of `snp_position` with genotype data:
+```{r join}
+maize_genotypes_positions <- c(snp_position["SNP_ID"],snp_position["Chromosome"],snp_position["Position"]) %>% as.data.frame() %>% left_join(maize_genotypes, by = "SNP_ID")
+```
+
+sort by chromosome:
+```{r chromosomes}
+for (i in 1:10) {
+  
+  #filter by chromosome and arrange by increasing position value
+  temp_object1 <- filter(maize_genotypes_positions, Chromosome == i & Position != 'multiple' & Position != 'unknown') %>% arrange(as.numeric(Position))
+  
+  #arrange by decreasing position value and replace '?' with '-'
+  temp_object2 <- temp_object1 %>% arrange(desc(as.numeric(Position))) %>% mutate_if(is.character, str_replace_all, pattern = '[?]', replacement = '-')
+  
+  #assign stored data to object named by chromosome
+  assign(paste0('maize_incr_chr_', i), temp_object1)
+  assign(paste0('maize_decr_chr_', i), temp_object2)
+}
+```
+
+
+### Teosinte data
+
+Extract teosinte data, transpose, and convert SNP_ID from row names to a column:
+```{r sort_transpose}
+teosinte_genotypes <- filter(fang_et_al_genotypes, Group =='ZMPBA'|Group =='ZMPIL'|Group =='ZMPJA') %>% t() %>% as.data.frame() %>% rownames_to_column()
+names(teosinte_genotypes)[1] <- "SNP_ID"
+```
+
+Join chromosome and position fields of `snp_position` with genotype data:
+```{r join}
+teosinte_genotypes_positions <- c(snp_position["SNP_ID"],snp_position["Chromosome"],snp_position["Position"]) %>% as.data.frame() %>% left_join(teosinte_genotypes, by = "SNP_ID")
+```
+
+sort by chromosome:
+```{r chromosomes}
+for (i in 1:10) {
+  
+  #filter by chromosome and arrange by increasing position value
+  temp_object1 <- filter(teosinte_genotypes_positions, Chromosome == i & Position != 'multiple' & Position != 'unknown') %>% arrange(as.numeric(Position))
+  #arrange by decreasing position value and replace '?' with '-'
+  temp_object2 <- temp_object1 %>% arrange(desc(as.numeric(Position))) %>% mutate_if(is.character, str_replace_all, pattern = '[?]', replacement = '-')
+  
+  #assign stored data to object named by chromosome
+  assign(paste0('teosinte_incr_chr_', i), temp_object1)
+  assign(paste0('teosinte_decr_chr_', i), temp_object2)
+}
+```
+
+## Visualization
+
+### SNPs per chromosome
+
+Distribution of SNPs on each chromosome
+```{r}
+#Plot maize SNPs
+ggplot(data = maize_genotypes_positions %>% group_by(Chromosome) %>% filter(Chromosome != 'multiple') %>%  filter(Chromosome != 'unknown') %>% filter(Position != 'multiple') %>% filter(Position != 'unknown')) + geom_point(aes(x = as.integer(Position), y = as.integer(Chromosome)), color = 'blue') + labs(x='Position (bases)', y='Chromosome', title='Maize: SNP distrubution by chromosome') + scale_y_continuous(breaks = c(1:10))
+
+#Plot teosinte SNPs
+ggplot(data = teosinte_genotypes_positions %>% group_by(Chromosome) %>% filter(Chromosome != 'multiple') %>%  filter(Chromosome != 'unknown') %>% filter(Position != 'multiple') %>% filter(Position != 'unknown')) + geom_point(aes(x = as.integer(Position), y = as.integer(Chromosome)), color = 'red') + labs(x='Position (bases)', y='Chromosome', title='Teosinte: SNP distrubution by chromosome') + scale_y_continuous(breaks = c(1:10))
+```
+
+Distribution of SNPs across chromosomes
+```{r}
+#Plot maize SNPs per chromosome
+ggplot(data = maize_genotypes_positions) + geom_bar(mapping = aes(x = Chromosome), fill = 'blue') + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + scale_x_discrete(limits=c('1','2','3','4','5','6','7','8','9','10','multiple','unknown')) + labs(x='Chromosome', y='Number of SNPs', title='Maize: SNPs per Chromosome')
+
+#Plot maize SNPs per chromosome
+ggplot(data = teosinte_genotypes_positions) + geom_bar(mapping = aes(x = Chromosome), fill = 'red') + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + scale_x_discrete(limits=c('1','2','3','4','5','6','7','8','9','10','multiple','unknown')) + labs(x='Chromosome', y='Number of SNPs', title='Teosinte: SNPs per Chromosome')
+```
+Graphs of maize and teosinte are identical
+
+### Missing data and heterozygosity
+
+Create a new function called `is_heterozygous` that returns:
+  1. 'heterozygous' for heterozygous positions
+  2. 'homozygous' for homozygous positions
+  3. 'missing' for missing data
+```{r}
+#function to check for heterozygosity
+zygosity <- function(genotype){
+  return(ifelse(genotype == 'A/A' | genotype == 'T/T' | genotype == 'G/G' | genotype == 'C/C', 'homozygous', ifelse(genotype == '?/?', 'missing', 'heterozygous')))
+}
+```
+
+Plot the heterozygosity data for each group in `fang_et_al_genotypes`
+```{r}
+#make the fang_et_al_genotypes long (tidy the data)
+fang_genotypes_long <- pivot_longer(fang_et_al_genotypes, -1:-3, names_to = 'SNP_ID', values_to = 'genotype')
+
+#determine zygosity of genotypes, and make another column
+fang_genotypes_long <- mutate(fang_genotypes_long, zygosity = zygosity(genotype))
+
+#plot the zygosity based on group
+fang_genotypes_long <- fang_genotypes_long %>% mutate(zygosity = fct_relevel(zygosity, 'missing','homozygous','heterozygous'))#change the order so missing is plotted on top
+
+ggplot(data = fang_genotypes_long) + geom_bar(mapping = aes(x = Group, fill= zygosity), position = 'fill') + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) #plot zygosity based on sample
+
+
+ggplot(data = fang_genotypes_long) + geom_bar(mapping = aes(x = Sample_ID, fill= zygosity), position = 'fill') + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) #by sample
+```
+
+There are a higher proportion of homozygous SNPs and a lower proportion of heterozygous SNPs in maize compared to teosinte.
+
+
+### My own visualization
+```{r}
+
+```
